@@ -10,10 +10,11 @@
     },
     "success": {
         "clear_routes": "Cleared users routes they had %s routes stored",
-        "pay_slip": "You got $%s, your payslip %s got paid to your bank account!"
+        "pay_slip": "You got $%s, your payslip %s got paid to your bank account!",
+        "pay_slip_fare": "You got $%s for current fare"
     },
     "target": {
-        "talk": "Talk to Garbageman",
+        "talk": "Request a job",
         "grab_garbage": "Grab garbage bag",
         "dispose_garbage": "Dispose Garbage Bag"
     },
@@ -50,5 +51,8 @@
         "picking_bag": "Grabbing garbage bag..",
         "talk": "[E] Talk to Garbage Man",
         "stops_left": "You have %s stops left!"
+    },
+    "zone": {
+        "garbage_zone": "Garbage Zone"
     }
 }

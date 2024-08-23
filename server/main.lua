@@ -110,9 +110,9 @@ lib.callback.register('garbagejob:server:spawnVehicle', function(source, coords)
     local plate = 'GBGE' .. tostring(math.random(1000, 9999))
     SetVehicleNumberPlateText(veh, plate)
     TriggerClientEvent('vehiclekeys:client:SetOwner', source, plate)
-    SetVehicleDoorsLocked(veh, 2)
+    SetVehicleDoorsLocked(veh, 1)
     local player = exports.qbx_core:GetPlayer(source)
-    exports.qbx_core:Notify(source, (locale(player and not player.Functions.RemoveMoney('bank', sharedConfig.truckPrice, 'garbage-deposit') and 'error.not_enough' or 'info.deposit_paid'):format(sharedConfig.truckPrice)), 'error')
+    exports.qbx_core:Notify(source, (locale(player and not player.Functions.RemoveMoney('bank', sharedConfig.truckPrice, 'garbage-deposit') and 'error.not_enough' or 'info.deposit_paid'):format(sharedConfig.truckPrice)), 'error', 7500)
 
     return netId
 end)
@@ -125,7 +125,7 @@ RegisterNetEvent('garbagejob:server:payShift', function(continue)
         local depositPay = routes[citizenId].depositPay
         if tonumber(routes[citizenId].stopsCompleted) < tonumber(routes[citizenId].totalNumberOfStops) then
             depositPay = 0
-            exports.qbx_core:Notify(src, (locale('error.early_finish'):format(routes[citizenId].stopsCompleted, routes[citizenId].totalNumberOfStops)), 'error')
+            exports.qbx_core:Notify(src, (locale('error.early_finish'):format(routes[citizenId].stopsCompleted, routes[citizenId].totalNumberOfStops)), 'error', 7500)
         end
         if continue then
             depositPay = 0
@@ -136,12 +136,21 @@ RegisterNetEvent('garbagejob:server:payShift', function(continue)
             payoutDeposit = ''
         end
 
-        player.Functions.AddMoney('bank', totalToPay , 'garbage-payslip')
-        exports.qbx_core:Notify(src, (locale('success.pay_slip'):format(totalToPay, payoutDeposit)), 'success')
+        player.Functions.AddMoney('bank', totalToPay , 'Garbage Payment')
+        exports.qbx_core:Notify(src, (locale('success.pay_slip'):format(totalToPay, payoutDeposit)), 'success', 7500)
         routes[citizenId] = nil
     else
         exports.qbx_core:Notify(source, locale('error.never_clocked_on'), 'error')
     end
+end)
+
+RegisterNetEvent('garbagejob:server:getPaidFare', function(fare)
+    local src = source
+    local player = exports.qbx_core:GetPlayer(src)
+    if not player then return end
+    local payment = math.floor((config.fareMultiplier * fare))
+    player.Functions.AddMoney('bank', payment, 'Garbage Fare Payment')
+    exports.qbx_core:Notify(src, locale('success.pay_slip', payment), 'success', 7500)
 end)
 
 lib.addCommand('cleargarbroutes', {

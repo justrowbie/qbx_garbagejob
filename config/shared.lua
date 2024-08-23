@@ -1,5 +1,6 @@
 return {
     truckPrice = 250,
+    usingJob = false,
     locations = {
         main = {
             label = 'Garbage Depot',

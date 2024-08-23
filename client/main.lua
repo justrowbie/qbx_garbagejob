@@ -17,7 +17,9 @@ local finished = false
 local continueWorking = false
 local garbText = false
 local trucText = false
-local pedsSpawned = false
+local garbagePed = nil
+local currentNetId = nil
+local prevCoords, currentCoords = nil, nil
 
 local function setupClient()
     garbageVehicle = nil
@@ -28,13 +30,25 @@ local function setupClient()
     garbageObject = nil
     endBlip = nil
     currentStopNum = 0
-    if playerJob.name == 'garbage' then
+    if sharedConfig.usingJob then
+        if playerJob.name == 'garbage' then
+            garbageBlip = AddBlipForCoord(sharedConfig.locations.main.coords.x, sharedConfig.locations.main.coords.y, sharedConfig.locations.main.coords.z)
+            SetBlipSprite(garbageBlip, 318)
+            SetBlipDisplay(garbageBlip, 4)
+            SetBlipScale(garbageBlip, 0.7)
+            SetBlipAsShortRange(garbageBlip, true)
+            SetBlipColour(garbageBlip, 5)
+            BeginTextCommandSetBlipName('STRING')
+            AddTextComponentSubstringPlayerName(sharedConfig.locations.main.label)
+            EndTextCommandSetBlipName(garbageBlip)
+        end
+    else
         garbageBlip = AddBlipForCoord(sharedConfig.locations.main.coords.x, sharedConfig.locations.main.coords.y, sharedConfig.locations.main.coords.z)
         SetBlipSprite(garbageBlip, 318)
         SetBlipDisplay(garbageBlip, 4)
-        SetBlipScale(garbageBlip, 1.0)
+        SetBlipScale(garbageBlip, 0.7)
         SetBlipAsShortRange(garbageBlip, true)
-        SetBlipColour(garbageBlip, 39)
+        SetBlipColour(garbageBlip, 5)
         BeginTextCommandSetBlipName('STRING')
         AddTextComponentSubstringPlayerName(sharedConfig.locations.main.label)
         EndTextCommandSetBlipName(garbageBlip)
@@ -65,6 +79,7 @@ local function garbageMenu()
 end
 
 local function BringBackCar()
+    lib.hideTextUI()
     DeleteVehicle(garbageVehicle)
     if endBlip then
         RemoveBlip(endBlip)
@@ -93,7 +108,7 @@ local function SetRouteBack()
     SetBlipDisplay(endBlip, 2)
     SetBlipScale(endBlip, 1.0)
     SetBlipAsShortRange(endBlip, false)
-    SetBlipColour(endBlip, 3)
+    SetBlipColour(endBlip, 5)
     BeginTextCommandSetBlipName('STRING')
     AddTextComponentSubstringPlayerName(sharedConfig.locations.vehicle.label)
     EndTextCommandSetBlipName(endBlip)
@@ -131,14 +146,24 @@ local function DeliverAnim()
         local CL = sharedConfig.locations.trashcan[currentStop]
         hasBag = false
         local pos = GetEntityCoords(cache.ped)
-        exports.ox_target:removeEntity(NetworkGetNetworkIdFromEntity(garbageVehicle), 'garbage_deliver')
+        if config.useInteract then
+            exports.interact:RemoveEntityInteraction(currentNetId, 'qbx_garbagejob_veh')
+        else
+            exports.ox_target:removeEntity(NetworkGetNetworkIdFromEntity(garbageVehicle), 'garbage_deliver')
+        end
         if (amountOfBags - 1) <= 0 then
             local hasMoreStops, nextStop, newBagAmount = lib.callback.await('garbagejob:server:nextStop', false, currentStop, currentStopNum, pos)
             if hasMoreStops and nextStop ~= 0 then
+                lib.hideTextUI()
                 -- Here he puts your next location and you are not finished working yet.
                 currentStop = nextStop
                 currentStopNum = currentStopNum + 1
                 amountOfBags = newBagAmount
+                local fare = #(currentCoords - prevCoords)
+                if fare > 0 then
+                    TriggerServerEvent('garbagejob:server:getPaidFare', fare)
+                    prevCoords = currentCoords
+                end 
                 SetGarbageRoute()
                 exports.qbx_core:Notify(locale('info.all_bags'))
                 SetVehicleDoorShut(garbageVehicle, 5, false)
@@ -163,22 +188,41 @@ local function DeliverAnim()
             else
                 exports.qbx_core:Notify((locale('info.bags_still'):format(amountOfBags)))
             end
-            garbageBinZone = exports.ox_target:addSphereZone({
-                coords = vec3(CL.coords.x, CL.coords.y, CL.coords.z),
-                radius = 2.0,
-                debug = config.debugPoly,
-                options = {
-                    {
+            if config.useInteract then
+                exports.interact:AddInteraction({
+                    coords = vec3(CL.coords.x, CL.coords.y, CL.coords.z),
+                    name = "qbx_garbagejob_zone",
+                    id = "qbx_garbagejob_zone",
+                    distance = 4.0,
+                    interactDst = 2.0,
+                    options = {{
                         label = locale('target.grab_garbage'),
-                        icon = 'fa-solid fa-trash',
-                        onSelect = TakeAnim,
-                        distance = 2.0,
+                        action = function()
+                            TakeAnim()
+                        end,
                         canInteract = function()
                             return not hasBag
                         end,
+                    }}
+                })
+            else
+                garbageBinZone = exports.ox_target:addSphereZone({
+                    coords = vec3(CL.coords.x, CL.coords.y, CL.coords.z),
+                    radius = 2.0,
+                    debug = config.debugPoly,
+                    options = {
+                        {
+                            label = locale('target.grab_garbage'),
+                            icon = 'fa-solid fa-trash',
+                            onSelect = TakeAnim,
+                            distance = 2.0,
+                            canInteract = function()
+                                return not hasBag
+                            end,
+                        },
                     },
-                },
-            })
+                })
+            end
         end
     end
 end
@@ -209,22 +253,44 @@ function TakeAnim()
         AnimCheck()
         if config.useTarget and not hasBag then
             hasBag = true
-            if garbageBinZone then
-                exports.ox_target:removeZone(garbageBinZone)
-                garbageBinZone = nil
+            if config.useInteract then
+                exports.interact:RemoveInteraction('qbx_garbagejob_zone')
+                exports.interact:AddEntityInteraction({
+                    netId = currentNetId,
+                    offset = vec3(0.0, -3.0, 0.0),
+                    name = "qbx_garbagejob_veh",
+                    id = "qbx_garbagejob_veh",
+                    distance = 4.0,
+                    interactDst = 3.0,
+                    options = {{
+                        label = locale('target.dispose_garbage'),
+                        action = function()
+                            DeliverAnim()
+                        end,
+                        canInteract = function()
+                            return hasBag
+                        end,
+                    }}
+                })
+                
+            else
+                if garbageBinZone then
+                    exports.ox_target:removeZone(garbageBinZone)
+                    garbageBinZone = nil
+                end
+                local options = {
+                    {
+                        name = 'garbage_deliver',
+                        label = locale('target.dispose_garbage'),
+                        icon = 'fa-solid fa-truck',
+                        onSelect = DeliverAnim,
+                        canInteract = function()
+                            return hasBag
+                        end,
+                    },
+                }
+                exports.ox_target:addEntity(NetworkGetNetworkIdFromEntity(garbageVehicle), options)
             end
-            local options = {
-                {
-                    name = 'garbage_deliver',
-                    label = locale('target.dispose_garbage'),
-                    icon = 'fa-solid fa-truck',
-                    onSelect = DeliverAnim,
-                    canInteract = function()
-                        return hasBag
-                    end,
-                },
-            }
-            exports.ox_target:addEntity(NetworkGetNetworkIdFromEntity(garbageVehicle), options)
         end
     else
         StopAnimTask(cache.ped, 'anim@amb@clubhouse@tutorial@bkr_tut_ig3@', 'machinic_loop_mechandplayer', 1.0)
@@ -347,6 +413,7 @@ local function CreateZone(x, y, z)
         radius = 15,
         debug = config.debugPoly,
         onEnter = function()
+            lib.showTextUI(locale('zone.garbage_zone'), {icon = "trash"})
             SetVehicleDoorOpen(garbageVehicle,5,false,false)
         end,
         inside = function()
@@ -355,9 +422,7 @@ local function CreateZone(x, y, z)
             end
         end,
         onExit = function()
-            if not config.useTarget then
-                lib.hideTextUI()
-            end
+            lib.hideTextUI()
             SetVehicleDoorShut(garbageVehicle, 5, false)
         end,
     })
@@ -365,6 +430,7 @@ end
 
 function SetGarbageRoute()
     local CL = sharedConfig.locations.trashcan[currentStop]
+    currentCoords = CL.coords.xyz
     if deliveryBlip then
         RemoveBlip(deliveryBlip)
     end
@@ -373,7 +439,7 @@ function SetGarbageRoute()
     SetBlipDisplay(deliveryBlip, 2)
     SetBlipScale(deliveryBlip, 1.0)
     SetBlipAsShortRange(deliveryBlip, false)
-    SetBlipColour(deliveryBlip, 27)
+    SetBlipColour(deliveryBlip, 5)
     BeginTextCommandSetBlipName('STRING')
     AddTextComponentSubstringPlayerName(sharedConfig.locations.trashcan[currentStop].name)
     EndTextCommandSetBlipName(deliveryBlip)
@@ -381,22 +447,41 @@ function SetGarbageRoute()
     finished = false
     if config.useTarget then
         if not hasBag then
-            garbageBinZone = exports.ox_target:addSphereZone({
-                coords = vec3(CL.coords.x, CL.coords.y, CL.coords.z),
-                radius = 2.0,
-                debug = config.debugPoly,
-                options = {
-                    {
+            if config.useInteract then
+                exports.interact:AddInteraction({
+                    coords = vec3(CL.coords.x, CL.coords.y, CL.coords.z),
+                    name = "qbx_garbagejob_zone",
+                    id = "qbx_garbagejob_zone",
+                    distance = 4.0,
+                    interactDst = 2.0,
+                    options = {{
                         label = locale('target.grab_garbage'),
-                        icon = 'fa-solid fa-trash',
-                        onSelect = TakeAnim,
+                        action = function()
+                            TakeAnim()
+                        end,
                         canInteract = function()
                             return not hasBag
                         end,
-                        distance = 2.0,
+                    }}
+                })
+            else
+                garbageBinZone = exports.ox_target:addSphereZone({
+                    coords = vec3(CL.coords.x, CL.coords.y, CL.coords.z),
+                    radius = 2.0,
+                    debug = config.debugPoly,
+                    options = {
+                        {
+                            label = locale('target.grab_garbage'),
+                            icon = 'fa-solid fa-trash',
+                            onSelect = TakeAnim,
+                            canInteract = function()
+                                return not hasBag
+                            end,
+                            distance = 2.0,
+                        },
                     },
-                },
-            })
+                })
+            end
         end
     end
     if pZone then
@@ -409,63 +494,98 @@ function SetGarbageRoute()
 end
 
 local function spawnPeds()
-    if not config.peds or not next(config.peds) or pedsSpawned then return end
-    for i = 1, #config.peds do
-        local current = config.peds[i]
-        current.model = type(current.model) == 'string' and joaat(current.model) or current.model
+    if garbagePed then DeletePed(garbagePed) end
+    local current = config.peds
+    local model = type(config.peds.model) == 'string' and joaat(config.peds.model) or config.peds.model
+    lib.requestModel(model, 5000)
+    garbagePed = CreatePed(0, model, config.peds.coords.x, config.peds.coords.y, config.peds.coords.z, config.peds.coords.w, false, false)
+    SetModelAsNoLongerNeeded(model)
+    FreezeEntityPosition(garbagePed, true)
+    SetEntityInvincible(garbagePed, true)
+    SetBlockingOfNonTemporaryEvents(garbagePed, true)
+    SetModelAsNoLongerNeeded(model)
 
-        lib.requestModel(current.model, 5000)
-        local ped = CreatePed(0, current.model, current.coords.x, current.coords.y, current.coords.z, current.coords.w, false, false)
-        SetModelAsNoLongerNeeded(current.model)
-        FreezeEntityPosition(ped, true)
-        SetEntityInvincible(ped, true)
-        SetBlockingOfNonTemporaryEvents(ped, true)
-        SetModelAsNoLongerNeeded(current.model)
-        current.pedHandle = ped
-
-        if config.useTarget then
-            exports.ox_target:addLocalEntity(ped, {
-                {
-                    name = 'garbage_ped',
-                    label = locale('target.talk'),
-                    icon = 'fa-solid fa-recycle',
+    if config.useTarget then
+        if config.useInteract then
+            exports.interact:RemoveLocalEntityInteraction(garbagePed, 'qbx_garbage_ped')
+            if sharedConfig.usingJob then
+                exports.interact:AddLocalEntityInteraction({
+                    entity = garbagePed,
+                    name = 'qbx_garbage_ped',
+                    id = 'qbx_garbage_ped',
+                    distance = 3.0,
+                    interactDst = 2.0,
                     groups = 'garbage',
-                    onSelect = garbageMenu,
-                }
-            })
-        else
-            lib.zones.box({
-                coords = vec3(current.coords.x, current.coords.y, current.coords.z+0.5),
-                size = vec3(3.0, 3.0, 2.0),
-                rotation = current.coords.w,
-                debug = config.debugPoly,
-                inside = function()
-                    if IsControlJustPressed(0, 38) then
-                        garbageMenu()
-                    end
-                end,
-                onEnter = function()
-                    lib.showTextUI(locale('info.talk'))
-                end,
-                onExit = function()
-                    lib.hideTextUI()
-                end,
-            })
-        end
-    end
-    pedsSpawned = true
-end
-
-local function deletePeds()
-    if not config.peds or not next(config.peds) or not pedsSpawned then return end
-    for i = 1, #config.peds do
-        local current = config.peds[i]
-        if current.pedHandle then
-            if config.useTarget then
-                exports.ox_target:removeLocalEntity(current.pedHandle, 'garbage_ped')
+                    options = {
+                        {
+                            label = locale('menu.route'),
+                            event = 'qb-garbagejob:client:RequestRoute'
+                        },
+                        {
+                            label = locale('menu.collect'),
+                            event = 'qb-garbagejob:client:RequestPaycheck'
+                        },
+                    }
+                })
+            else
+                exports.interact:AddLocalEntityInteraction({
+                    entity = garbagePed,
+                    name = 'qbx_garbage_ped',
+                    id = 'qbx_garbage_ped',
+                    distance = 3.0,
+                    interactDst = 2.0,
+                    options = {
+                        {
+                            label = locale('menu.route'),
+                            event = 'qb-garbagejob:client:RequestRoute'
+                        },
+                        {
+                            label = locale('menu.collect'),
+                            event = 'qb-garbagejob:client:RequestPaycheck'
+                        },
+                    }
+                })
             end
-            DeletePed(current.pedHandle)
+        else
+            if sharedConfig.usingJob then
+                exports.ox_target:addLocalEntity(ped, {
+                    {
+                        name = 'garbage_ped',
+                        label = locale('target.talk'),
+                        icon = 'fa-solid fa-recycle',
+                        groups = 'garbage',
+                        onSelect = garbageMenu,
+                    }
+                })
+            else
+                exports.ox_target:addLocalEntity(ped, {
+                    {
+                        name = 'garbage_ped',
+                        label = locale('target.talk'),
+                        icon = 'fa-solid fa-recycle',
+                        onSelect = garbageMenu,
+                    }
+                })
+            end
         end
+    else
+        lib.zones.box({
+            coords = vec3(config.peds.coords.x, config.peds.coords.y, config.peds.coords.z+0.5),
+            size = vec3(3.0, 3.0, 2.0),
+            rotation = config.peds.coords.w,
+            debug = config.debugPoly,
+            inside = function()
+                if IsControlJustPressed(0, 38) then
+                    garbageMenu()
+                end
+            end,
+            onEnter = function()
+                lib.showTextUI(locale('info.talk'))
+            end,
+            onExit = function()
+                lib.hideTextUI()
+            end,
+        })
     end
 end
 
@@ -494,12 +614,15 @@ AddEventHandler('qb-garbagejob:client:RequestRoute', function()
                         return
                     end
 
+                    currentNetId = netId
                     garbageVehicle = veh
                     SetVehicleFuelLevel(veh, 100.0)
                     SetVehicleFixed(veh)
                     currentStop = firstStop
                     currentStopNum = 1
                     amountOfBags = totalBags
+                    prevCoords = GetEntityCoords(garbageVehicle)
+                    print('prevCoords',prevCoords)
                     SetGarbageRoute()
                     exports.qbx_core:Notify(locale('info.started'))
                     return
@@ -514,6 +637,8 @@ AddEventHandler('qb-garbagejob:client:RequestRoute', function()
         currentStop = firstStop
         currentStopNum = 1
         amountOfBags = totalBags
+        prevCoords = GetEntityCoords(garbageVehicle)
+        print('prevCoords2',prevCoords)
         SetGarbageRoute()
     else
         exports.qbx_core:Notify((locale('info.not_enough'):format(sharedConfig.truckPrice)))
@@ -529,24 +654,28 @@ AddEventHandler('qb-garbagejob:client:RequestPaycheck', function()
 end)
 
 RegisterNetEvent('QBCore:Client:OnPlayerLoaded', function()
-    playerJob = QBX.PlayerData.job
+    if sharedConfig.usingJob then
+        playerJob = QBX.PlayerData.job
+    end
     setupClient()
     spawnPeds()
 end)
 
 RegisterNetEvent('QBCore:Client:OnJobUpdate', function(JobInfo)
-    playerJob = JobInfo
-    if garbageBlip then
-        RemoveBlip(garbageBlip)
+    if sharedConfig.usingJob then
+        playerJob = JobInfo
+        if garbageBlip then
+            RemoveBlip(garbageBlip)
+        end
+        if endBlip then
+            RemoveBlip(endBlip)
+        end
+        if deliveryBlip then
+            RemoveBlip(deliveryBlip)
+        end
+        endBlip = nil
+        deliveryBlip = nil
     end
-    if endBlip then
-        RemoveBlip(endBlip)
-    end
-    if deliveryBlip then
-        RemoveBlip(deliveryBlip)
-    end
-    endBlip = nil
-    deliveryBlip = nil
     setupClient()
     spawnPeds()
 end)
@@ -557,13 +686,15 @@ AddEventHandler('onResourceStop', function(resource)
             DeleteEntity(garbageObject)
             garbageObject = nil
         end
-        deletePeds()
+        lib.hideTextUI()
     end
 end)
 
 AddEventHandler('onResourceStart', function(resource)
     if GetCurrentResourceName() == resource then
-        playerJob = QBX.PlayerData.job
+        if sharedConfig.usingJob then
+            playerJob = QBX.PlayerData.job
+        end
         setupClient()
         spawnPeds()
     end
