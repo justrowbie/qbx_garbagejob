@@ -622,7 +622,6 @@ AddEventHandler('qb-garbagejob:client:RequestRoute', function()
                     currentStopNum = 1
                     amountOfBags = totalBags
                     prevCoords = GetEntityCoords(garbageVehicle)
-                    print('prevCoords',prevCoords)
                     SetGarbageRoute()
                     exports.qbx_core:Notify(locale('info.started'))
                     return
@@ -638,7 +637,6 @@ AddEventHandler('qb-garbagejob:client:RequestRoute', function()
         currentStopNum = 1
         amountOfBags = totalBags
         prevCoords = GetEntityCoords(garbageVehicle)
-        print('prevCoords2',prevCoords)
         SetGarbageRoute()
     else
         exports.qbx_core:Notify((locale('info.not_enough'):format(sharedConfig.truckPrice)))

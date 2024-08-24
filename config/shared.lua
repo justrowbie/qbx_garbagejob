@@ -20,15 +20,15 @@ return {
         trashcan = {
             {
                 name = 'forumdrive',
-                coords = vec4(-168.07, -1662.8, 33.31, 137.5),
+                coords = vec4(467.28, -948.37, 27.86, 192.23),
             },
             {
                 name = 'grovestreet',
-                coords = vec4(118.06, -1943.96, 20.43, 179.5),
+                coords = vec4(775.37, -1054.95, 27.04, 281.58),
             },
             {
                 name = 'jamestownstreet',
-                coords = vec4(297.94, -2018.26, 20.49, 119.5),
+                coords = vec4(770.69, -1902.32, 29.27, 344.39),
             },
             {
                 name = 'davisave',
